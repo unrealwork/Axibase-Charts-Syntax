@@ -1,3 +1,4 @@
+import { request } from "https";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
 import Statement from "./Statement";
 import Util from "./Util";
@@ -24,6 +25,7 @@ export default class JsDomCaller {
         return "," + Array(amount).fill(name).join();
     }
 
+    private links: string[] = [];
     private document: TextDocument;
     private match: RegExpExecArray;
     private currentLineNumber: number = 0;
@@ -41,6 +43,16 @@ export default class JsDomCaller {
 
     public validate(): Diagnostic[] {
         this.parseJsStatements();
+
+        this.links.forEach((link) => {
+            try {
+                request(link, (response) => {
+                    console.log(response);
+                });
+            } catch (error) {
+                console.log(error);
+            }
+        });
 
         const dom = new jsdom.JSDOM(`<html></html>`, { runScripts: "outside-only" });
         const window = dom.window;
@@ -99,6 +111,17 @@ export default class JsDomCaller {
             this.match = /(^[ \t]*value[ \t]*=[ \t]*)(\S+[ \t\S]*)$/.exec(line);
             if (this.match) {
                 this.processValue();
+                continue;
+            }
+            this.match = /^[ \t]*import[ \t]+(\S+)[ \t]*=\s*(\S+)\s*$/.exec(line);
+            if (this.match) {
+                this.imports.push(this.match[1]);
+                let url = this.match[2];
+                if (!/\//.test(url)) {
+                    url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url;
+                }
+                this.links.push(url);
+                this.importCounter++;
                 continue;
             }
             this.match = /(^[ \t]*options[ \t]*=[ \t]*javascript:[ \t]*)(\S+[ \t\S]*)$/.exec(line);
