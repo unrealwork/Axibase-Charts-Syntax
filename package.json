@@ -75,6 +75,8 @@
         "typescript": "2.8.3"
     },
     "dependencies": {
+        "@types/request": "^2.47.1",
+        "request": "^2.87.0",
         "vscode-languageserver": "^4.3.0"
     }
 }

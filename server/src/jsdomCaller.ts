@@ -1,4 +1,4 @@
-import { request } from "https";
+import * as request from "request";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
 import Statement from "./Statement";
 import Util from "./Util";
@@ -41,26 +41,23 @@ export default class JsDomCaller {
         this.lines = Util.deleteComments(document.getText()).split("\n");
     }
 
-    public validate(): Diagnostic[] {
+    public async validate(): Promise<Diagnostic[]> {
         this.parseJsStatements();
 
-        this.links.forEach((link) => {
-            try {
-                request(link, (response) => {
-                    console.log(response);
-                });
-            } catch (error) {
-                console.log(error);
-            }
-        });
-
+        const promises: Array<Promise<string>> = [];
         const dom = new jsdom.JSDOM(`<html></html>`, { runScripts: "outside-only" });
         const window = dom.window;
         const $ = jquery(dom.window);
+        this.links.forEach((link) => { promises.push(this.downloadScript(link)); });
+        const scripts = await Promise.all(promises);
         this.statements.forEach((statement) => {
-            const toEvaluate = `(new Function("$", ${JSON.stringify(statement.declaration)})).call(window, ${$})`;
+            console.log(scripts[0].split("\n")[0]);
+            console.log(scripts[0].split("\n")[1]);
+            console.log(scripts[0].split("\n")[2]);
+            console.log(scripts[0].split("\n")[3]);
+            const call = `(new Function("$", ${JSON.stringify(statement.declaration)})).call(window, ${$})`;
             try {
-                window.eval(toEvaluate);
+                window.eval(call);
             } catch (err) {
                 let isImported = false;
                 for (const imported of this.imports) {
@@ -78,7 +75,7 @@ export default class JsDomCaller {
             }
         });
 
-        return this.result;
+        return Promise.resolve(this.result);
     }
 
     private getCurrentLine(): string {
@@ -97,9 +94,14 @@ export default class JsDomCaller {
                 this.processScript();
                 continue;
             }
-            this.match = /^[ \t]*import[ \t]+(\S+)[ \t]*=.+/.exec(line);
+            this.match = /^[ \t]*import[ \t]+(\S+)[ \t]*=\s*(\S+)\s*$/.exec(line);
             if (this.match) {
                 this.imports.push(this.match[1]);
+                let url = this.match[2];
+                if (!/\//.test(url)) {
+                    url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url;
+                }
+                this.links.push(url);
                 this.importCounter++;
                 continue;
             }
@@ -111,17 +113,6 @@ export default class JsDomCaller {
             this.match = /(^[ \t]*value[ \t]*=[ \t]*)(\S+[ \t\S]*)$/.exec(line);
             if (this.match) {
                 this.processValue();
-                continue;
-            }
-            this.match = /^[ \t]*import[ \t]+(\S+)[ \t]*=\s*(\S+)\s*$/.exec(line);
-            if (this.match) {
-                this.imports.push(this.match[1]);
-                let url = this.match[2];
-                if (!/\//.test(url)) {
-                    url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url;
-                }
-                this.links.push(url);
-                this.importCounter++;
                 continue;
             }
             this.match = /(^[ \t]*options[ \t]*=[ \t]*javascript:[ \t]*)(\S+[ \t\S]*)$/.exec(line);
@@ -248,5 +239,14 @@ export default class JsDomCaller {
 
         };
         this.statements.push(statement);
+    }
+
+    private downloadScript(link: string): Promise<string> {
+        return new Promise((success, error) => {
+            request(link, (err, res, body) => {
+                if (err || res.statusCode !== 200) { error((err) ? err : res.statusCode); }
+                success(body);
+            });
+        });
     }
 }

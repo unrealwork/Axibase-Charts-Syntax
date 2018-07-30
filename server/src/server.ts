@@ -88,17 +88,18 @@ documents.onDidClose((e) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
-    validateTextDocument(change.document);
+    validateTextDocument(change.document).catch(connection.console.log);
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-    const settings = await getDocumentSettings(textDocument.uri);
     const validator = new Validator(textDocument);
     const jsDomCaller = new JsDomCaller(textDocument);
     const diagnostics: Diagnostic[] = validator.lineByLine();
+    const settings = await getDocumentSettings(textDocument.uri);
 
     if (settings.validateFunctions) {
-        jsDomCaller.validate().forEach((element) => {
+        const jsDiagnostics = await jsDomCaller.validate();
+        jsDiagnostics.forEach((element) => {
             diagnostics.push(element);
         });
     }
