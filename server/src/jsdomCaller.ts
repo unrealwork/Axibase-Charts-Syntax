@@ -1,3 +1,7 @@
+import { get as getHttp } from "http";
+import { RequestOptions as httpOptions } from "http";
+import { get as getHttps } from "https";
+import { RequestOptions as httpsOptions } from "https";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
 import Statement from "./Statement";
 import Util from "./Util";
@@ -24,7 +28,32 @@ export default class JsDomCaller {
         return "," + Array(amount).fill(name).join();
     }
 
-    private links: string[] = [];
+    private static downloadScriptHttps(options: httpsOptions): Promise<string> {
+        return new Promise<string>((success, error) => {
+            getHttps(options, (message) => {
+                message.on("data", (body) => {
+                    if (typeof body !== "string") { body = body.toString(); }
+                    success(body);
+                });
+                message.on("error", error);
+            });
+        });
+    }
+
+    private static downloadScriptHttp(options: httpOptions): Promise<string> {
+        return new Promise<string>((success, error) => {
+            getHttp(options, (message) => {
+                message.on("data", (body) => {
+                    if (typeof body !== "string") { body = body.toString(); }
+                    success(body);
+                });
+                message.on("error", error);
+            });
+        });
+    }
+
+    private httpOptions: httpOptions[] = [];
+    private httpsOptions: httpsOptions[] = [];
     private document: TextDocument;
     private match: RegExpExecArray;
     private currentLineNumber: number = 0;
@@ -34,26 +63,30 @@ export default class JsDomCaller {
     private imports: string[] = [];
     private importCounter = 0;
 
-
     constructor(document: TextDocument) {
         this.document = document;
         this.lines = Util.deleteComments(document.getText()).split("\n");
     }
 
-    public validate(): Diagnostic[] {
+    public async validate(): Promise<Diagnostic[]> {
         this.parseJsStatements();
 
-        let body = "<html>";
-        this.links.forEach((link) => body += `<script type="text/javascript" src="${link}"></script>`);
-        body += "</html>";
-        const dom = new jsdom.JSDOM(body, { runScripts: "dangerously", resources: "usable" });
+        const scripts: string[] = await Promise.all(this.httpsOptions.map(JsDomCaller.downloadScriptHttps));
+        const httpScripts: string[] = await Promise.all(this.httpOptions.map(JsDomCaller.downloadScriptHttp));
+        scripts.concat(httpScripts);
+        const dom = new jsdom.JSDOM("<html></html>", { runScripts: "dangerously", resources: "usable" });
         const window = dom.window;
-        const $ = jquery(dom.window);
+        const js = [jquery(dom.window)];
+        scripts.forEach((script) => {
+            const thisModule = { exports: {}};
+            const getModule = new Function("module, exports", script);
+            getModule.apply(null, [thisModule, thisModule.exports]);
+            js.push(thisModule);
+        });
         this.statements.forEach((statement) => {
-            const call = `(new Function("$", ${JSON.stringify(statement.declaration)})).call(window, ${$})`;
-            try {
-                window.eval(call);
-            } catch (err) {
+            const call = `(new Function("$", "${this.imports.join(",")}", ${JSON.stringify(statement.declaration)}))` +
+            `.call(window, ${js.join()})`;
+            try { window.eval(call); } catch (err) {
                 let isImported = false;
                 for (const imported of this.imports) {
                     if (new RegExp(imported, "i").test(err.message)) {
@@ -82,6 +115,18 @@ export default class JsDomCaller {
         return this.lines[i].toLowerCase();
     }
 
+    private urlToOptions(url: string) {
+        this.match = /^http(s?):\/\/(\S+?)(\/\S*)$/.exec(url);
+        if (!this.match) { return; }
+        const hostname = this.match[2];
+        const path = this.match[3];
+        if (this.match[1] === "s") {
+            this.httpsOptions.push({ hostname, path });
+        } else {
+            this.httpOptions.push({ hostname, path });
+        }
+    }
+
     private parseJsStatements() {
         for (; this.currentLineNumber < this.lines.length; this.currentLineNumber++) {
             const line = this.getCurrentLine();
@@ -97,7 +142,7 @@ export default class JsDomCaller {
                 if (!/\//.test(url)) {
                     url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url;
                 }
-                this.links.push(url);
+                this.urlToOptions(url);
                 this.importCounter++;
                 continue;
             }
@@ -167,7 +212,7 @@ export default class JsDomCaller {
                 `const proxyFunction = new Proxy(new Function(), {});` +
                 `(new Function("widget","config","dialog", ${content}))` +
                 `.call(window${JsDomCaller.generateCall(1, "proxyFunction")}${JsDomCaller.generateCall(2, "proxy")})`,
-                range,
+            range,
         };
         this.statements.push(statement);
 

@@ -98,9 +98,8 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
     const settings = await getDocumentSettings(textDocument.uri);
 
     if (settings.validateFunctions) {
-        jsDomCaller.validate().forEach((element) => {
-            diagnostics.push(element);
-        });
+        const jsDiagnostics = await jsDomCaller.validate();
+        jsDiagnostics.forEach((diagnostic) => { diagnostics.push(diagnostic); });
     }
 
     // Send the computed diagnostics to VSCode.
