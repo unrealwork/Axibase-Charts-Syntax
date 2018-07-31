@@ -224,7 +224,7 @@ export default class JsDomCaller {
                 `"threshold_duration","time","bottom","top","meta","entityTag","metricTag","median",` +
                 `"average","minimum","maximum","series","getValueWithOffset","getValueForDate",` +
                 `"getMaximumValue", ${this.names}${content}` +
-                `)).call(window${JsDomCaller.generateCall(4, "proxy")}` +
+                `)).call(window${JsDomCaller.generateCall(3, "proxy")}` +
                 `${JsDomCaller.generateCall(33, "proxyFunction")}` +
                 `${JsDomCaller.generateCall(1, "proxyArray")}` +
                 `${JsDomCaller.generateCall(3, "proxyFunction")}` +
