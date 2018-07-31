@@ -1,4 +1,4 @@
-import * as request from "request";
+// import * as request from "request";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
 import Statement from "./Statement";
 import Util from "./Util";
@@ -41,20 +41,16 @@ export default class JsDomCaller {
         this.lines = Util.deleteComments(document.getText()).split("\n");
     }
 
-    public async validate(): Promise<Diagnostic[]> {
+    public validate(): Diagnostic[] {
         this.parseJsStatements();
 
-        const promises: Array<Promise<string>> = [];
-        const dom = new jsdom.JSDOM(`<html></html>`, { runScripts: "outside-only" });
+        let body = "<html>";
+        this.links.forEach((link) => body += `<script type="text/javascript" src="${link}"></script>`);
+        body += "</html>";
+        const dom = new jsdom.JSDOM(body, { runScripts: "dangerously", resources: "usable" });
         const window = dom.window;
         const $ = jquery(dom.window);
-        this.links.forEach((link) => { promises.push(this.downloadScript(link)); });
-        const scripts = await Promise.all(promises);
         this.statements.forEach((statement) => {
-            console.log(scripts[0].split("\n")[0]);
-            console.log(scripts[0].split("\n")[1]);
-            console.log(scripts[0].split("\n")[2]);
-            console.log(scripts[0].split("\n")[3]);
             const call = `(new Function("$", ${JSON.stringify(statement.declaration)})).call(window, ${$})`;
             try {
                 window.eval(call);
@@ -75,14 +71,15 @@ export default class JsDomCaller {
             }
         });
 
-        return Promise.resolve(this.result);
+        return this.result;
     }
 
     private getCurrentLine(): string {
         return this.getLine(this.currentLineNumber);
     }
 
-    private getLine(i: number): string {
+    private getLine(i: number): string | null {
+        if (i >= this.lines.length) { return null; }
         return this.lines[i].toLowerCase();
     }
 
@@ -239,14 +236,5 @@ export default class JsDomCaller {
 
         };
         this.statements.push(statement);
-    }
-
-    private downloadScript(link: string): Promise<string> {
-        return new Promise((success, error) => {
-            request(link, (err, res, body) => {
-                if (err || res.statusCode !== 200) { error((err) ? err : res.statusCode); }
-                success(body);
-            });
-        });
     }
 }
