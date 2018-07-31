@@ -1,4 +1,3 @@
-// import * as request from "request";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
 import Statement from "./Statement";
 import Util from "./Util";
