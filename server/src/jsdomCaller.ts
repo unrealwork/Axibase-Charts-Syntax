@@ -32,6 +32,8 @@ export default class JsDomCaller {
     private statements: Statement[] = [];
     private imports: Import[] = [];
     private text: string;
+    private names: string;
+    private modules: string;
     private dom: any;
 
     constructor(document: TextDocument) {
@@ -51,7 +53,6 @@ export default class JsDomCaller {
         this.parseJsStatements();
         this.statements.forEach((statement) => {
             const call = `(new Function(${JSON.stringify(statement.declaration)})).call(window)`;
-            this.dom.window.eval(`console.log(modules.get("fred"));`);
             try { this.dom.window.eval(call); } catch (err) {
                 result.push(Util.createDiagnostic(
                     { range: statement.range, uri: this.document.uri },
@@ -94,10 +95,14 @@ export default class JsDomCaller {
         }
         this.imports = newImports;
         this.dom.window.modules = modules;
+        const keys = Array.from(this.dom.window.modules.keys());
+        this.names = (keys.length > 0) ? '"' + keys.join() + '", ' : "";
+        this.modules =
+            (keys.length > 0) ? "," + keys.map((name) => name = `modules.get("${name}")`).join() : "";
         return Promise.resolve();
     }
 
-    private getCurrentLine(): string { return this.getLine(this.currentLineNumber); }
+    private getCurrentLine(): string | null { return this.getLine(this.currentLineNumber); }
 
     private getLine(i: number): string | null {
         if (i >= this.lines.length) { return null; }
@@ -132,7 +137,7 @@ export default class JsDomCaller {
 
     private processScript() {
         let line = this.getCurrentLine();
-        let content: string;
+        let content: string = "";
         let range: Range;
         this.match = /(^[ \t]*script[ \t]*=[\s]*)(\S+[\s\S]*)$/m.exec(line);
         if (this.match) {
@@ -142,16 +147,19 @@ export default class JsDomCaller {
                 end: { character: matchStart + this.match[2].length, line: this.currentLineNumber },
                 start: { character: this.match[1].length, line: this.currentLineNumber },
             };
-            let j = this.currentLineNumber + 1;
-            while (!(/\bscript\b/.test(this.getLine(j)) || /\bendscript\b/.test(this.getLine(j)))) {
+            let j = this.currentLineNumber;
+            let buf: string = this.getLine(j);
+            while (j < this.lines.length - 1) {
                 j++;
-                if (j >= this.lines.length) { break; }
+                buf = this.getLine(j);
+                if (/\bscript\b/.test(buf) || /\bendscript\b/.test(buf)) { break; }
             }
-            if (!(j === this.lines.length || /\bscript\b/.test(this.getLine(j)))) {
-                line = this.getLine(++this.currentLineNumber);
-                while (line && !/\bendscript\b/.test(line)) {
-                    line = this.getLine(++this.currentLineNumber);
+            if (/\bendscript\b/.test(buf)) {
+                this.currentLineNumber++;
+                while (this.currentLineNumber < j) {
+                    line = this.getCurrentLine();
                     content += line + "\n";
+                    this.currentLineNumber++;
                 }
                 range.end = {
                     character: this.getLine(this.currentLineNumber - 1).length, line: this.currentLineNumber - 1,
@@ -162,10 +170,10 @@ export default class JsDomCaller {
                 end: { character: this.getLine(this.currentLineNumber + 1).length, line: this.currentLineNumber + 1 },
                 start: { character: 0, line: this.currentLineNumber + 1 },
             };
-            content = "";
-            line = this.getLine(++this.currentLineNumber);
-            while (line && !/\bendscript\b/.test(line)) {
-                line = this.getLine(++this.currentLineNumber);
+            while (this.currentLineNumber < this.lines.length - 1) {
+                this.currentLineNumber++;
+                line = this.getCurrentLine();
+                if (/\bendscript\b/.test(line)) { break; }
                 content += line + "\n";
             }
             range.end = {
@@ -177,8 +185,9 @@ export default class JsDomCaller {
             declaration:
                 `const proxy = new Proxy({}, {});` +
                 `const proxyFunction = new Proxy(new Function(), {});` +
-                `(new Function("widget","config","dialog", ${content}))` +
-                `.call(window${JsDomCaller.generateCall(1, "proxyFunction")}${JsDomCaller.generateCall(2, "proxy")})`,
+                `(new Function("widget","config","dialog", ${this.names}${content}))` +
+                `.call(window${JsDomCaller.generateCall(1, "proxyFunction")}` +
+                `${JsDomCaller.generateCall(2, "proxy")}${this.modules})`,
             range,
         };
         this.statements.push(statement);
@@ -190,8 +199,8 @@ export default class JsDomCaller {
         const matchStart = this.match.index + this.match[1].length;
         const statement = {
             declaration:
-                `(new Function("value","time","previousValue","previousTime", ${content}))\n` +
-                `.call(window${JsDomCaller.generateCall(4, "5")})`,
+                `(new Function("value","time","previousValue","previousTime", ${this.names}${content}))\n` +
+                `.call(window${JsDomCaller.generateCall(4, "5")}${this.modules})`,
             range: {
                 end: { character: matchStart + this.match[2].length, line: this.currentLineNumber },
                 start: { character: matchStart, line: this.currentLineNumber },
@@ -203,10 +212,6 @@ export default class JsDomCaller {
     private processValue() {
         const content = JsDomCaller.stringifyStatement(this.match[2]);
         const matchStart = this.match.index + this.match[1].length;
-        const keys = Array.from(this.dom.window.modules.keys());
-        const names: string = (keys.length > 0) ? '"' + keys.join() + '", ' : "";
-        const modules: string =
-            (keys.length > 0) ? "," + keys.map((name) => name = `modules.get("${name}")`).join() : "";
         const statement = {
             declaration:
                 `const proxy = new Proxy({}, {});` +
@@ -218,12 +223,12 @@ export default class JsDomCaller {
                 `"min_value_time","max_value_time","count","threshold_count","threshold_percent",` +
                 `"threshold_duration","time","bottom","top","meta","entityTag","metricTag","median",` +
                 `"average","minimum","maximum","series","getValueWithOffset","getValueForDate",` +
-                `"getMaximumValue", ${names}${content}` +
+                `"getMaximumValue", ${this.names}${content}` +
                 `)).call(window${JsDomCaller.generateCall(4, "proxy")}` +
                 `${JsDomCaller.generateCall(33, "proxyFunction")}` +
                 `${JsDomCaller.generateCall(1, "proxyArray")}` +
                 `${JsDomCaller.generateCall(3, "proxyFunction")}` +
-                `${modules})`,
+                `${this.modules})`,
             range: {
                 end: { character: matchStart + this.match[2].length, line: this.currentLineNumber },
                 start: { character: matchStart, line: this.currentLineNumber },
@@ -241,8 +246,8 @@ export default class JsDomCaller {
                 `const proxyFunction = new Proxy(new Function(), {});` +
                 `(new Function("requestMetricsSeriesValues","requestEntitiesMetricsValues",` +
                 `"requestPropertiesValues","requestMetricsSeriesOptions","requestEntitiesMetricsOptions",` +
-                `"requestPropertiesOptions", ${content}` +
-                `)).call(window${JsDomCaller.generateCall(6, "proxyFunction")})`,
+                `"requestPropertiesOptions", ${this.names}${content}` +
+                `)).call(window${JsDomCaller.generateCall(6, "proxyFunction")}${this.modules})`,
             range: {
                 end: { character: matchStart + this.match[2].length, line: this.currentLineNumber },
                 start: { character: matchStart, line: this.currentLineNumber },

@@ -16,6 +16,7 @@ export default class Import {
             request(this.getUrl(), (error, response, body) => {
                 if (error) { return reject(error); }
                 if (response.statusCode !== 200) { return reject(response.statusCode); }
+                this.content = body;
                 return resolve(body);
             });
         });
