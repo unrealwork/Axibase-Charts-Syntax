@@ -1,8 +1,5 @@
-import { get as getHttp } from "http";
-import { RequestOptions as httpOptions } from "http";
-import { get as getHttps } from "https";
-import { RequestOptions as httpsOptions } from "https";
 import { Diagnostic, DiagnosticSeverity, Range, TextDocument } from "vscode-languageserver/lib/main";
+import Import from "./Import";
 import Statement from "./Statement";
 import Util from "./Util";
 
@@ -28,122 +25,94 @@ export default class JsDomCaller {
         return "," + Array(amount).fill(name).join();
     }
 
-    private static downloadScriptHttps(options: httpsOptions): Promise<string> {
-        return new Promise<string>((success, error) => {
-            getHttps(options, (message) => {
-                message.on("data", (body) => {
-                    if (typeof body !== "string") { body = body.toString(); }
-                    success(body);
-                });
-                message.on("error", error);
-            });
-        });
-    }
-
-    private static downloadScriptHttp(options: httpOptions): Promise<string> {
-        return new Promise<string>((success, error) => {
-            getHttp(options, (message) => {
-                message.on("data", (body) => {
-                    if (typeof body !== "string") { body = body.toString(); }
-                    success(body);
-                });
-                message.on("error", error);
-            });
-        });
-    }
-
-    private httpOptions: httpOptions[] = [];
-    private httpsOptions: httpsOptions[] = [];
     private document: TextDocument;
     private match: RegExpExecArray;
     private currentLineNumber: number = 0;
     private lines: string[];
-    private result: Diagnostic[] = [];
     private statements: Statement[] = [];
-    private imports: string[] = [];
-    private importCounter = 0;
+    private imports: Import[] = [];
+    private text: string;
+    private dom: any;
+    private jsModules: Map<string, any> = new Map<string, any>();
 
     constructor(document: TextDocument) {
-        this.document = document;
-        this.lines = Util.deleteComments(document.getText()).split("\n");
+        this.setDocument(document);
+        this.dom = new jsdom.JSDOM("<html></html>", { runScripts: "outside-only" });
+        this.dom.window.modules = this.jsModules;
+        jquery(this.dom.window); // attach jquery
     }
 
-    public async validate(): Promise<Diagnostic[]> {
-        this.parseJsStatements();
+    public setDocument(document: TextDocument) {
+        this.document = document;
+        this.text = Util.deleteComments(document.getText());
+        this.lines = this.text.split("\n");
+    }
 
-        const scripts: string[] = await Promise.all(this.httpsOptions.map(JsDomCaller.downloadScriptHttps));
-        const httpScripts: string[] = await Promise.all(this.httpOptions.map(JsDomCaller.downloadScriptHttp));
-        scripts.concat(httpScripts);
-        const dom = new jsdom.JSDOM("<html></html>", { runScripts: "dangerously", resources: "usable" });
-        const window = dom.window;
-        const js = [jquery(dom.window)];
-        scripts.forEach((script) => {
-            const thisModule = { exports: {}};
-            const getModule = new Function("module, exports", script);
-            getModule.apply(null, [thisModule, thisModule.exports]);
-            js.push(thisModule);
-        });
+    public validate(): Diagnostic[] {
+        const result: Diagnostic[] = [];
+        this.parseJsStatements();
         this.statements.forEach((statement) => {
-            const call = `(new Function("$", "${this.imports.join(",")}", ${JSON.stringify(statement.declaration)}))` +
-            `.call(window, ${js.join()})`;
-            try { window.eval(call); } catch (err) {
-                let isImported = false;
-                for (const imported of this.imports) {
-                    if (new RegExp(imported, "i").test(err.message)) {
-                        isImported = true;
-                        break;
-                    }
-                }
-                if (!isImported) {
-                    this.result.push(Util.createDiagnostic(
-                        { range: statement.range, uri: this.document.uri },
-                        DiagnosticSeverity.Warning, err.message,
-                    ));
-                }
+            const call = `(new Function(${JSON.stringify(statement.declaration)})).call(window)`;
+            try { this.dom.window.eval(call); } catch (err) {
+                result.push(Util.createDiagnostic(
+                    { range: statement.range, uri: this.document.uri },
+                    DiagnosticSeverity.Warning, err.message,
+                ));
             }
         });
 
-        return this.result;
+        return result;
     }
 
-    private getCurrentLine(): string {
-        return this.getLine(this.currentLineNumber);
+    public async parseImports() {
+        const regexp = /^[ \t]*import[ \t]+(\S+)[ \t]*=[ \t]*(\S+)$/gmi;
+        const text = this.text;
+        let match: RegExpExecArray = regexp.exec(text);
+        const newImports: Import[] = [];
+        const modules: Map<string, any> = new Map();
+        while (match) {
+            let url = match[2];
+            const name = match[1];
+            if (!/\//.test(url)) { url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url; }
+            for (const imp of this.imports) {
+                if (imp.getUrl() === url) {
+                    if (imp.getName() !== name) { imp.setName(name); }
+                    newImports.push(imp);
+                    match = regexp.exec(text);
+                    continue;
+                }
+            }
+            const external = new Import(name, url);
+
+            let script;
+            try { script = await external.getContent(); } catch (err) { return Promise.reject(err); }
+            const thisModule = { exports: {} };
+            const getModule = new Function("module, exports", script);
+            getModule.apply(null, [thisModule, thisModule.exports]);
+            modules.set(external.getName(), thisModule);
+
+            newImports.push(external);
+            match = regexp.exec(text);
+        }
+        this.imports = newImports;
+        this.jsModules = modules;
+        return Promise.resolve();
     }
+
+    private getCurrentLine(): string { return this.getLine(this.currentLineNumber); }
 
     private getLine(i: number): string | null {
         if (i >= this.lines.length) { return null; }
-        return this.lines[i].toLowerCase();
-    }
-
-    private urlToOptions(url: string) {
-        this.match = /^http(s?):\/\/(\S+?)(\/\S*)$/.exec(url);
-        if (!this.match) { return; }
-        const hostname = this.match[2];
-        const path = this.match[3];
-        if (this.match[1] === "s") {
-            this.httpsOptions.push({ hostname, path });
-        } else {
-            this.httpOptions.push({ hostname, path });
-        }
+        return this.lines[i];
     }
 
     private parseJsStatements() {
-        for (; this.currentLineNumber < this.lines.length; this.currentLineNumber++) {
+        this.statements = [];
+        for (this.currentLineNumber = 0; this.currentLineNumber < this.lines.length; this.currentLineNumber++) {
             const line = this.getCurrentLine();
             this.match = /^[ \t]*script/.exec(line);
             if (this.match) {
                 this.processScript();
-                continue;
-            }
-            this.match = /^[ \t]*import[ \t]+(\S+)[ \t]*=\s*(\S+)\s*$/.exec(line);
-            if (this.match) {
-                this.imports.push(this.match[1]);
-                let url = this.match[2];
-                if (!/\//.test(url)) {
-                    url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url;
-                }
-                this.urlToOptions(url);
-                this.importCounter++;
                 continue;
             }
             this.match = /(^[ \t]*replace-value[ \t]*=[ \t]*)(\S+[ \t\S]*)$/.exec(line);
@@ -236,7 +205,10 @@ export default class JsDomCaller {
     private processValue() {
         const content = JsDomCaller.stringifyStatement(this.match[2]);
         const matchStart = this.match.index + this.match[1].length;
-        const importList = '"' + this.imports.join('","') + '"';
+        const keys = Array.from(this.jsModules.keys());
+        const names: string = (keys.length > 0) ? '"' + keys.join() + '", ' : "";
+        const modules: string =
+            (keys.length > 0) ? "," + keys.map((name) => name = `modules.get("${name}")`).join() : "";
         const statement = {
             declaration:
                 `const proxy = new Proxy({}, {});` +
@@ -248,12 +220,12 @@ export default class JsDomCaller {
                 `"min_value_time","max_value_time","count","threshold_count","threshold_percent",` +
                 `"threshold_duration","time","bottom","top","meta","entityTag","metricTag","median",` +
                 `"average","minimum","maximum","series","getValueWithOffset","getValueForDate",` +
-                `"getMaximumValue", ${importList}, ${content}` +
+                `"getMaximumValue", ${names}${content}` +
                 `)).call(window${JsDomCaller.generateCall(4, "proxy")}` +
                 `${JsDomCaller.generateCall(33, "proxyFunction")}` +
                 `${JsDomCaller.generateCall(1, "proxyArray")}` +
                 `${JsDomCaller.generateCall(3, "proxyFunction")}` +
-                `${JsDomCaller.generateCall(this.importCounter, "proxy")})`,
+                `${modules})`,
             range: {
                 end: { character: matchStart + this.match[2].length, line: this.currentLineNumber },
                 start: { character: matchStart, line: this.currentLineNumber },
