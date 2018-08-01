@@ -44,12 +44,14 @@ export default class JsDomCaller {
     private dom: any;
 
     constructor(document: TextDocument) {
+        if (!document) { throw new Error("Invalid argument"); }
         this.setDocument(document);
         this.dom = new jsdom.JSDOM("<html></html>", { runScripts: "outside-only" });
         jquery(this.dom.window); // attach jquery
     }
 
     public setDocument(document: TextDocument) {
+        if (!document) { throw new Error("Invalid argument"); }
         this.document = document;
         this.text = Util.deleteComments(document.getText());
         this.lines = this.text.split("\n");
