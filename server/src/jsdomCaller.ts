@@ -21,6 +21,13 @@ export default class JsDomCaller {
         return content;
     }
 
+    private static getModule(script: string): any {
+        const thisModule = { exports: {} };
+        const getModule = new Function("module, exports", script);
+        getModule.apply(null, [thisModule, thisModule.exports]);
+        return thisModule.exports;
+    }
+
     private static generateCall(amount: number, name: string): string {
         return "," + Array(amount).fill(name).join();
     }
@@ -65,41 +72,46 @@ export default class JsDomCaller {
     }
 
     public async parseImports() {
-        const regexp = /^[ \t]*import[ \t]+(\S+)[ \t]*=[ \t]*(\S+)$/gmi;
+        const regexp = /^[ \t]*import[ \t]+(\S+)[ \t]*=[ \t]*(\S+)[ \t]*$/gmi;
         const text = this.text;
         const newImports: Import[] = [];
         const modules: Map<string, any> = new Map();
         let match: RegExpExecArray = regexp.exec(text);
+
         while (match) {
             let url = match[2];
             const name = match[1];
             if (!/\//.test(url)) { url = "https://apps.axibase.com/chartlab/portal/resource/scripts/" + url; }
+
             let external;
             for (const imp of this.imports) {
                 if (imp.getUrl() === url) {
                     if (imp.getName() !== name) { imp.setName(name); }
                     external = imp;
+                    break;
                 }
             }
             if (!external) { external = new Import(name, url); }
 
             let script;
             try { script = await external.getContent(); } catch (err) { return Promise.reject(err); }
-            const thisModule = { exports: {} };
-            const getModule = new Function("module, exports", script);
-            getModule.apply(null, [thisModule, thisModule.exports]);
-            modules.set(external.getName(), thisModule.exports);
+            modules.set(external.getName(), JsDomCaller.getModule(script));
 
             newImports.push(external);
             match = regexp.exec(text);
         }
+
+        this.updateImports(newImports, modules);
+        return Promise.resolve();
+    }
+
+    private updateImports(newImports: Import[], modules: Map<string, any>) {
         this.imports = newImports;
         this.dom.window.modules = modules;
         const keys = Array.from(this.dom.window.modules.keys());
         this.names = (keys.length > 0) ? '"' + keys.join() + '", ' : "";
         this.modules =
             (keys.length > 0) ? "," + keys.map((name) => name = `modules.get("${name}")`).join() : "";
-        return Promise.resolve();
     }
 
     private getCurrentLine(): string | null { return this.getLine(this.currentLineNumber); }
