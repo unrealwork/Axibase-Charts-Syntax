@@ -1,0 +1,13 @@
+{
+  "$schema": "./dictionary.schema.json",
+  "settings": [
+    {
+      "name": "actionenable",
+      "displayName": "action-enable",
+      "type": "boolean",
+      "defaultValue": "false",
+      "description": "Example description",
+      "multiLine": false
+    }
+  ]
+}

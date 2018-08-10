@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "dictionary.schema.json",
+  "title": "Axibase Charts dictionary",
+  "description": "Scheme for Axibase Charts dictionary",
+  "type": "object",
+  "properties": {
+    "settings": {
+      "type": "array",
+      "description": "Array of defined settings",
+      "items": {
+        "type": "object",
+        "description": "Portal configuration setting",
+        "properties": {
+          "section": {
+            "type": "string",
+            "description": "[Optional] In which section this setting can be applied. Default is global",
+            "enum": [
+              "column", "configuration", "dropdown", "group", "keys", "link", "node", "option", "other", "placeholders",
+              "properties", "property", "series", "tag", "tags", "threshold", "widget"
+            ]
+          },
+          "name": {
+            "description": "Internal lowercased representation without any delimiters",
+            "type": "string",
+            "examples": [
+              "actionenable", "alertrowexpression"
+            ]
+          },
+          "displayName": {
+            "description": "What should be displayed to the user",
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "The type of the setting",
+            "enum": [
+              "boolean", "string", "enum", "integer", "number", "time interval"
+            ]
+          },
+          "defaultValue": {
+            "description": "Default setting value. Will be used in completion suggestions",
+            "type": ["array", "boolean", "integer", "number", "string"]
+          },
+          "minValue": {
+            "description": "[Optional] Minimal value constraint. Default is 'no constraint'",
+            "type": ["number", "integer"]
+          },
+          "maxValue": {
+            "description": "[Optional] Maximal value constraint. Default is 'no constraint'",
+            "type": ["number", "integer"]
+          },
+          "multiLine": {
+            "description": "[Optional] Can this setting be repeated or not. Default is false",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Short setting description for the user",
+            "type": "string"
+          },
+          "enum": {
+            "description": "[Optional] Possible values constraint. Default is 'no constraint'",
+            "type": "array",
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "script": {
+            "description": "[Optional] Description of this script. Default is 'empty'",
+            "type": "object",
+            "properties": {
+              "fields": {
+                "type": "array",
+                "description": "Description of available arguments, which are passed by Charts lib.",
+                "items": {
+                  "type": "object",
+                  "description": "Available in the script argument",
+                  "properties": {
+                    "type": {
+                      "description": "The type of the inline JavaScript argument",
+                      "type": "string",
+                      "enum": [
+                        "array", "boolean", "integer", "number", "object", "string", "function"
+                      ]
+                    },
+                    "nullable": {
+                      "description": "[Optional] Can this argument be null or not. Default is false",
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "description": "Name of this argument",
+                      "type": "string"
+                    },
+                    "description": {
+                      "description": "Description of this argument",
+                      "type": "string"
+                    },
+                    "args": {
+                      "type": "array",
+                      "description": "[Optional] If this argument is function, this array contains its arguments. Default is 'empty'",
+                      "items": {
+                        "type": "object",
+                        "description": "Argument of this argument",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "description": "The type of this argument",
+                            "enum": [
+                              "array", "boolean", "integer", "number", "object", "string"
+                            ]
+                          },
+                          "name": {
+                            "description": "Name of this argument",
+                            "type": "string"
+                          },
+                          "description": {
+                            "description": "Description of this argument",
+                            "type": "string"
+                          },
+                          "required": {
+                            "description": "[Optional] Is this argument required to call the function or not. Default is false",
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "type", "name", "description"
+                        ]
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  }
+                },
+                "returnValue": {
+                  "description": "The value returned by this script",
+                  "type": "string",
+                  "enum": [
+                    "boolean", "string", "integer", "number"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "fields", "returnValue"
+            ]
+          }
+        },
+        "required": [
+          "name", "displayName", "type", "description", "defaultValue"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}
