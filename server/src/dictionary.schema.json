@@ -22,10 +22,7 @@
           },
           "name": {
             "description": "Internal lowercased representation without any delimiters",
-            "type": "string",
-            "examples": [
-              "actionenable", "alertrowexpression"
-            ]
+            "type": "string"
           },
           "displayName": {
             "description": "What should be displayed to the user",
@@ -35,7 +32,7 @@
             "type": "string",
             "description": "The type of the setting",
             "enum": [
-              "boolean", "string", "enum", "integer", "number", "time interval"
+              "boolean", "string", "enum", "integer", "number", "interval", "date"
             ]
           },
           "defaultValue": {
