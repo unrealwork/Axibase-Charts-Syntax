@@ -84,7 +84,7 @@ class PreviewShower {
                 "vscode.previewHtml", vscode.Uri.parse(`file://${tmpPath}`),
                 vscode.ViewColumn.Two, `Preview ${document.fileName}`);
         });
-    };
+    }
 
     private getHtml(url: string, configuration: string): string {
         return `<!DOCTYPE html>
